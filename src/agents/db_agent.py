@@ -6,7 +6,7 @@ from typing import List
 
 from opentelemetry import trace
 
-from src.services.db_client import OracleDBClient
+from services.db_client import OracleDBClient
 
 
 class DatabaseAgent:

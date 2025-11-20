@@ -5,6 +5,10 @@ from __future__ import annotations
 from opentelemetry import trace
 from opentelemetry.exporter.jaeger.thrift import JaegerExporter
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
+try:  # optional httpx instrumentation; package may not be present in early setups
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+except ImportError:  # pragma: no cover - graceful degradation
+    HTTPXClientInstrumentor = None
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -37,10 +41,19 @@ def init_tracer(service_name: str = "agentic-research-demo") -> trace.Tracer:
     return trace.get_tracer(service_name)
 
 
+_http_instrumented = False
+
 def init_http_instrumentation() -> None:
-    """Instrument the `requests` library so outbound HTTP calls emit spans."""
-
-    # A single call instruments every future `requests` usage in the process.
+    """Instrument HTTP client libraries (requests + httpx)."""
+    global _http_instrumented
+    if _http_instrumented:
+        return
     RequestsInstrumentor().instrument()
-
-    # TODO: Add idempotency guards if this gets called multiple times in the future.
+    if HTTPXClientInstrumentor is not None:
+        try:
+            HTTPXClientInstrumentor().instrument()
+        except Exception:  # pragma: no cover - non-critical failure
+            # httpx instrumentation is optional; ignore if it fails.
+            pass
+    _http_instrumented = True
+    # TODO: Add config-driven enable/disable flags.

@@ -6,7 +6,7 @@ from typing import Callable
 
 from opentelemetry import trace
 
-from src.services.web_search import web_search_and_summarize
+from services.web_search import web_search_and_summarize
 
 
 class SearchAgent:

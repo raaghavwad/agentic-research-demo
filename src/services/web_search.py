@@ -1,32 +1,98 @@
-"""Demo-friendly helper that fakes a web search + summarization pipeline."""
+"""Web search + Ollama summarization pipeline with observability."""
 
 from __future__ import annotations
 
 import requests
+import ollama
 from opentelemetry import trace
+
+from config import get_settings
 
 
 def web_search_and_summarize(query: str) -> str:
-    """Perform a placeholder web search call and return a mocked summary."""
+    """Perform a web search and use Ollama to summarize the results."""
 
     tracer = trace.get_tracer(__name__)
+    settings = get_settings()
 
     # Wrap the entire operation in a span so downstream calls nest nicely.
     with tracer.start_as_current_span("web_search_and_summarize") as span:
         span.set_attribute("search.query", query)
 
-        # TODO: Replace with Tavily/SerpAPI/etc. and pass actual API keys.
+        # Perform a real web search using a simple API (DuckDuckGo Instant Answer API is free)
         try:
-            resp = requests.get("https://httpbin.org/json", timeout=10)
+            # Using DuckDuckGo Instant Answer API (no key required)
+            resp = requests.get(
+                "https://api.duckduckgo.com/",
+                params={"q": query, "format": "json"},
+                timeout=10
+            )
             resp.raise_for_status()
-            mock_payload = resp.json()
-        except requests.RequestException:
-            mock_payload = {"results": []}
+            search_data = resp.json()
+            
+            # Extract relevant info from DuckDuckGo response
+            abstract = search_data.get("Abstract", "")
+            related_topics = search_data.get("RelatedTopics", [])
+            
+            # Build context for the LLM
+            context_parts = []
+            if abstract:
+                context_parts.append(f"Overview: {abstract}")
+            
+            for topic in related_topics[:3]:  # Top 3 related topics
+                if isinstance(topic, dict) and "Text" in topic:
+                    context_parts.append(f"- {topic['Text']}")
+            
+            context = "\n".join(context_parts) if context_parts else "No detailed results found."
+            
+        except requests.RequestException as e:
+            context = f"Search failed: {str(e)}"
+            span.set_attribute("search.error", str(e))
 
-        results = mock_payload.get("slideshow", {}).get("slides", [])
+        span.set_attribute("search.context_length", len(context))
 
-        # Instead of an LLM, stitch together a simple description.
-        summary = f"Found {len(results)} potential leads for '{query}'."
+        # Use Ollama to generate a concise summary
+        try:
+            with tracer.start_as_current_span("ollama.summarize") as llm_span:
+                llm_span.set_attribute("llm.model", settings.ollama_model)
+                
+                prompt = f"""You are a helpful research assistant. Based on the search results below about "{query}", provide ONLY a brief 2-3 sentence summary. Do not add any extra commentary, questions, or elaborate beyond the summary.
+
+Search Results:
+{context}
+
+Provide your summary now (2-3 sentences only):"""
+
+                response = ollama.chat(
+                    model=settings.ollama_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a concise research assistant. Provide brief, factual summaries without elaboration."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    options={
+                        "temperature": 0.3,  # Lower temperature for more focused responses
+                        "num_predict": 150,  # Limit token generation
+                    }
+                )
+                
+                summary = response["message"]["content"].strip()
+                
+                # If summary is too long, truncate it intelligently
+                sentences = summary.split('. ')
+                if len(sentences) > 3:
+                    summary = '. '.join(sentences[:3]) + '.'
+                
+                llm_span.set_attribute("llm.response_length", len(summary))
+                
+        except Exception as e:
+            summary = f"LLM summarization failed: {str(e)}. Raw context: {context[:200]}..."
+            span.set_attribute("llm.error", str(e))
+
         span.set_attribute("summary.length", len(summary))
-
         return summary

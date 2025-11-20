@@ -77,7 +77,7 @@ The project **must** include:
 ### **HTTP instrumentation**
 Use:
 
-```
+```env
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 ```
 
@@ -93,7 +93,9 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 - `"oracle.query_trends"`
 
 ### **Span Attributes**
+
 Include useful metadata such as:
+
 - `user.query`
 - `search.query`
 - `db.topic`
@@ -101,11 +103,21 @@ Include useful metadata such as:
 - `summary.length`
 - `db.rows_count`
 
+Additional attributes implemented (post initial spec) to enrich trace analysis:
+
+- `search.summary.length` (length of LLM-produced search summary)
+- `db.lines.count` (number of formatted lines returned by DatabaseAgent)
+- `response.length` (total combined result length)
+- `response.lines` (number of lines in final combined answer)
+- `db.mcp.mode` ("sqlcl" when SQLcl subprocess path active, else "direct")
+- `llm.response_length` (length of Ollama summarization output)
+- `search.context_length` (length of gathered raw search context prior to summarization)
+
 ---
 
-# 📁 Folder Structure (Must Match)
+## Folder Structure (Must Match)
 
-```
+```text
 src/
   app.py
   config.py
@@ -135,38 +147,48 @@ README.md
 
 ---
 
-# 🛠️ Code Behavior Requirements
+## Code Behavior Requirements
 
-## RootAgent
+### RootAgent
+
 - Coordinates SearchAgent + DatabaseAgent
 - Creates root span
 - Adds attributes for input + output length
 - Sequential execution is fine
 - Combines results in `_combine_results`
 
-## SearchAgent
+### SearchAgent
+
 - Creates its own span
 - Calls web_search_and_summarize
 - Handles LLM summarization (placeholder is fine)
 
-## DatabaseAgent
+### DatabaseAgent
+
 - Creates its own span
 - Calls OracleDBClient.query_trends()
 - Formats rows as text
 
-## OracleDBClient
-- Constructor accepts `sqlcl_endpoint`
-- `query_trends(topic: str)` wraps DB call in a span
-- Should mock results first (replace later)
+### OracleDBClient
 
-## Web Search Service
-- Wrap logic in `"web_search_and_summarize"` span
-- Use `requests.get()` (instrumented automatically)
-- Use placeholder API endpoint
+- Constructor reads connection settings from environment via `config.get_settings()`.
+- `query_trends(topic: str)` wraps DB call in `oracle.query_trends` span.
+- Selection logic:
+  1. If env `USE_SQLCL_MCP=true` and `sql` executable found → attempt SQLcl subprocess (CSV output parsing).
+  2. Else use direct Python `oracledb` driver.
+  3. On failure fall back to static sample rows and set `db.error` span attribute.
+- Emits `db.mcp.mode` indicating which path executed ("sqlcl" or "direct").
+
+### Web Search Service
+
+- Wrap logic in `"web_search_and_summarize"` span, sub-span `"ollama.summarize"` for LLM call.
+- Uses DuckDuckGo Instant Answer API (`requests.get`, automatically instrumented) to gather context.
+- Summarizes via local Ollama model defined by `OLLAMA_MODEL` env var.
+- Attributes: `search.query`, `search.context_length`, `llm.model`, `llm.response_length`, `summary.length`.
 
 ---
 
-# 🔧 Environment Setup Requirements
+## Environment Setup Requirements
 
 Create `.env.example` with:
 
@@ -174,13 +196,19 @@ Create `.env.example` with:
 LLM_API_KEY=your_key_here
 WEB_SEARCH_API_KEY=your_key_here
 SQLCL_MCP_ENDPOINT=http://localhost:1234
+OLLAMA_MODEL=phi3.5:latest
+OLLAMA_BASE_URL=http://localhost:11434
+ORACLE_USER=SYSTEM
+ORACLE_PASSWORD=OraclePassword123
+ORACLE_DSN=localhost:1521/FREEPDB1
+USE_SQLCL_MCP=false
 ```
 
 Use `python-dotenv` to load these values in `config.py`.
 
 ---
 
-# 🐳 Docker Requirements
+## Docker Requirements
 
 `docker/docker-compose.yml` must include:
 
@@ -192,7 +220,7 @@ Use `python-dotenv` to load these values in `config.py`.
 
 ---
 
-# 📜 README Requirements
+## README Requirements
 
 README.md must include:
 
@@ -207,7 +235,7 @@ README.md must include:
 
 ---
 
-# 🎯 Design Philosophy
+## Design Philosophy
 
 - Code must be **readable**, **well-commented**, and **evangelist-friendly**  
 - Avoid over-engineering — clarity matters more  
@@ -216,7 +244,7 @@ README.md must include:
 
 ---
 
-# 🚀 Deliverables
+## Deliverables
 
 This SPEC.md describes the full scope needed for:
 
@@ -226,7 +254,14 @@ This SPEC.md describes the full scope needed for:
 4. A presentation-ready 5-minute demo  
 5. A GitHub-ready project
 
+Recommended additional verification steps for demo readiness:
+
+- Run with Jaeger active and confirm span tree ordering.
+- Toggle `USE_SQLCL_MCP=true` and verify `db.mcp.mode` changes.
+- Inspect attributes `response.lines` and `search.summary.length` for sane values.
+
 Cursor should follow this spec for:
+
 - scaffolding
 - code generation
 - refinement

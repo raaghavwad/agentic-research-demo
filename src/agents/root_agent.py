@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from opentelemetry import trace
 
-from src.agents.search_agent import SearchAgent
-from src.agents.db_agent import DatabaseAgent
+from agents.search_agent import SearchAgent
+from agents.db_agent import DatabaseAgent
 
 
 class RootAgent:
