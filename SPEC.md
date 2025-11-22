@@ -266,3 +266,47 @@ Cursor should follow this spec for:
 - code generation
 - refinement
 
+## 🖥️ UI Requirements (Streamlit Frontend)
+
+In addition to the CLI entrypoint, provide a simple web UI using **Streamlit**.
+
+Goals:
+- Let a user enter a free-text research query.
+- Run the same underlying agentic workflow used by the CLI:
+  - Use the LangGraph workflow (root agent + SearchAgent + DatabaseAgent).
+  - Preserve all existing observability behavior (OpenTelemetry spans, Jaeger traces).
+- Display:
+  - The combined final answer.
+  - Optionally, the separate “Web Research Summary” and “Oracle Trends” sections.
+
+Implementation details:
+- Add a new module, for example: `ui/streamlit_app.py`.
+- The UI should:
+  - Initialize the workflow once (e.g., via `st.cache_resource`).
+  - For each user query, call the orchestration function (e.g., `run_graph(workflow, user_query)`).
+  - Provide clear instructions and a link or note about viewing traces in Jaeger.
+
+Running the UI:
+- It should be runnable from project root as:
+  - `streamlit run ui/streamlit_app.py`
+- The UI **must not** bypass observability:
+  - It should always rely on the same `build_workflow` + `run_graph` functions that the CLI uses, so the traces remain consistent and visible in Jaeger under `service.name = agentic-research-demo`.
+
+### LLM Configuration
+
+The SearchAgent uses an LLM to summarize web search results into a concise answer.
+The specific LLM provider is configurable and should not be hard-coded.
+
+Environment variables (provider-agnostic):
+- `LLM_PROVIDER` — e.g., `ollama`, `openai`, `oci`, or `azure`.
+- `LLM_MODEL` — model name (provider-specific).
+- `LLM_BASE_URL` — base URL or inference endpoint (optional).
+- `LLM_API_KEY` — required only for external providers.
+
+Requirements:
+- All LLM calls must be wrapped in an OpenTelemetry span (`llm.summarize`).
+- Spans must include attributes:
+    - `llm.provider`
+    - `llm.model`
+    - `llm.response_length`
+- Implementation should support swapping LLM providers without changing UI or agent logic.

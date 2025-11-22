@@ -9,7 +9,7 @@ langchain-ollama>=0.2.0
 oracledb>=2.0.0
 
 # MCP (Model Context Protocol) support
-mcp>=1.0.0
+#mcp>=1.0.0
 
 # HTTP and utilities
 requests>=2.31.0
