@@ -61,11 +61,71 @@ At first, this can return mocked results with TODO comments.
 
 # 🧩 Observability Requirements
 
+## 🔭 Observability Stack (Traces + KPIs)
+
+The application must provide **end-to-end observability** with:
+
+- **Traces** for agent workflows (RootAgent → SearchAgent → DBAgent → LLM + DB calls)
+- **Key metrics (KPIs)** such as request counts, error rates, and latency
+
+### Traces: OpenTelemetry → Tempo
+
+- The Python app uses the **OpenTelemetry SDK** for tracing.
+- Traces are exported via **OTLP (HTTP or gRPC)** to a local **Grafana Tempo** instance.
+- No Jaeger-specific code should exist in the application.
+- Configurable via environment variables:
+  - `OTEL_SERVICE_NAME` (default: `agentic-research-demo`)
+  - `OTEL_EXPORTER_OTLP_ENDPOINT` (default: `http://localhost:4318/v1/traces`)
+  - `OTEL_EXPORTER_OTLP_HEADERS` (optional, e.g. `Authorization=Bearer xyz`)
+
+The span model remains:
+
+- `root_agent.handle_request`
+  - `search_agent.run`
+    - `web_search.fetch_results`
+    - `llm.summarize`
+  - `db_agent.run`
+    - `oracle.query_trends`
+
+Each span should include relevant attributes and record exceptions.
+
+### Metrics: Prometheus KPIs
+
+- The app must expose **basic metrics** via a Prometheus-compatible endpoint, using the `prometheus_client` library.
+- Metrics should include at least:
+  - A **counter** for total requests (labeled by outcome: success / error)
+  - A **histogram** for request latency (in seconds or milliseconds)
+- Metrics are exposed on an HTTP endpoint, e.g. `:9464/metrics`.
+- A local **Prometheus** instance scrapes this endpoint and stores metrics.
+
+### Unified UI: Grafana
+
+- A local **Grafana** instance is used as the **single observability UI**.
+- Grafana is configured with:
+  - A **Tempo data source** for traces.
+  - A **Prometheus data source** for metrics.
+- At least one dashboard or view should allow:
+  - Inspecting traces for individual agent requests (via Tempo).
+  - Viewing KPIs (request rate, error rate, latency distribution) from Prometheus metrics.
+
+### Configuration in the UI
+
+- The Streamlit UI sidebar must reference Grafana instead of Jaeger.
+- Environment variables:
+  - `GRAFANA_URL` — base URL for the Grafana UI (default: `http://localhost:3000`)
+  - Optional:
+    - `GRAFANA_TRACES_URL` — deep link to a traces view or Explore page.
+    - `GRAFANA_KPIS_URL` — deep link to a KPIs dashboard.
+- If `GRAFANA_TRACES_URL` and `GRAFANA_KPIS_URL` are provided, the UI should render separate links for:
+  - “View Traces”
+  - “View KPIs Dashboard”
+- If only `GRAFANA_URL` is set, show a single “Open Grafana” link with explanatory text.
+
+
 The project **must** include:
 
 ### **OpenTelemetry Tracing**
 - OpenTelemetry SDK + API
-- Jaeger exporter
 - Parent/child spans for:
   - RootAgent
   - SearchAgent
@@ -81,9 +141,6 @@ Use:
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 ```
 
-### **Jaeger**
-- Docker compose file with Jaeger all-in-one service  
-- Accessible at: http://localhost:16686
 
 ### **Span Naming Guidelines**
 - `"root_agent.handle_request"`
@@ -110,7 +167,7 @@ Additional attributes implemented (post initial spec) to enrich trace analysis:
 - `response.length` (total combined result length)
 - `response.lines` (number of lines in final combined answer)
 - `db.mcp.mode` ("sqlcl" when SQLcl subprocess path active, else "direct")
-- `llm.response_length` (length of Ollama summarization output)
+- `llm.response_length` (length of LLM summarization output, e.g., OpenAI Chat Completions)
 - `search.context_length` (length of gathered raw search context prior to summarization)
 
 ---
@@ -181,10 +238,10 @@ README.md
 
 ### Web Search Service
 
-- Wrap logic in `"web_search_and_summarize"` span, sub-span `"ollama.summarize"` for LLM call.
+- Wrap logic in `"web_search_and_summarize"` span, sub-span `"llm.summarize"` for the LLM call.
 - Uses DuckDuckGo Instant Answer API (`requests.get`, automatically instrumented) to gather context.
-- Summarizes via local Ollama model defined by `OLLAMA_MODEL` env var.
-- Attributes: `search.query`, `search.context_length`, `llm.model`, `llm.response_length`, `summary.length`.
+- Summarizes via a configurable LLM provider (current implementation uses OpenAI Chat Completions via `OPENAI_MODEL`).
+- Attributes: `search.query`, `search.context_length`, `llm.provider`, `llm.model`, `llm.response_length`, `summary.length`.
 
 ---
 
@@ -193,11 +250,13 @@ README.md
 Create `.env.example` with:
 
 ```
-LLM_API_KEY=your_key_here
+OPENAI_API_KEY=your_openai_key_here
+OPENAI_MODEL=gpt-4o-mini
+LLM_PROVIDER=openai
+LLM_API_KEY=${OPENAI_API_KEY}
+LLM_MODEL=${OPENAI_MODEL}
 WEB_SEARCH_API_KEY=your_key_here
 SQLCL_MCP_ENDPOINT=http://localhost:1234
-OLLAMA_MODEL=phi3.5:latest
-OLLAMA_BASE_URL=http://localhost:11434
 ORACLE_USER=SYSTEM
 ORACLE_PASSWORD=OraclePassword123
 ORACLE_DSN=localhost:1521/FREEPDB1
@@ -205,6 +264,18 @@ USE_SQLCL_MCP=false
 ```
 
 Use `python-dotenv` to load these values in `config.py`.
+
+### LLM Configuration
+
+- SearchAgent uses an LLM to summarize aggregated web search context into a concise answer.
+- The provider is configurable, but the current implementation defaults to OpenAI Chat Completions.
+- Environment variables:
+  - `OPENAI_API_KEY` — API key for OpenAI.
+  - `OPENAI_MODEL` — model name (e.g., `gpt-4o-mini`, `gpt-4.1-mini`).
+  - Optional aliases `LLM_API_KEY` / `LLM_MODEL` can mirror the OpenAI values to keep the rest of the stack provider-agnostic.
+- Observability requirements for LLM usage:
+  - All LLM calls must be wrapped in a span such as `llm.summarize`.
+  - Span attributes must include `llm.provider` (e.g., `openai`), `llm.model`, and `llm.response_length`.
 
 ---
 
@@ -292,21 +363,3 @@ Running the UI:
 - The UI **must not** bypass observability:
   - It should always rely on the same `build_workflow` + `run_graph` functions that the CLI uses, so the traces remain consistent and visible in Jaeger under `service.name = agentic-research-demo`.
 
-### LLM Configuration
-
-The SearchAgent uses an LLM to summarize web search results into a concise answer.
-The specific LLM provider is configurable and should not be hard-coded.
-
-Environment variables (provider-agnostic):
-- `LLM_PROVIDER` — e.g., `ollama`, `openai`, `oci`, or `azure`.
-- `LLM_MODEL` — model name (provider-specific).
-- `LLM_BASE_URL` — base URL or inference endpoint (optional).
-- `LLM_API_KEY` — required only for external providers.
-
-Requirements:
-- All LLM calls must be wrapped in an OpenTelemetry span (`llm.summarize`).
-- Spans must include attributes:
-    - `llm.provider`
-    - `llm.model`
-    - `llm.response_length`
-- Implementation should support swapping LLM providers without changing UI or agent logic.

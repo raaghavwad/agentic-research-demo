@@ -1,9 +1,11 @@
-"""Utilities to wire OpenTelemetry tracing for the demo app."""
+"""Utilities to wire OpenTelemetry tracing for the demo app (Tempo/Grafana)."""
 
 from __future__ import annotations
 
+import os
+
 from opentelemetry import trace
-from opentelemetry.exporter.jaeger.thrift import JaegerExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 try:  # optional httpx instrumentation; package may not be present in early setups
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -15,30 +17,42 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 
 def init_tracer(service_name: str = "agentic-research-demo") -> trace.Tracer:
-    """Return a tracer instance configured with a Jaeger exporter.
+    """Configure OpenTelemetry OTLP exporting (Tempo/Grafana friendly).
 
-    This helper centralizes the boilerplate so that future blog readers can
-    copy/paste the setup and focus on the fun multi-agent logic.
+    Args:
+        service_name: Default logical service name when env var overrides are absent.
+
+    Returns:
+        trace.Tracer scoped to the resolved service name.
     """
 
-    # Define resource attributes so Jaeger can label spans by logical service.
-    resource = Resource(attributes={"service.name": service_name})
+    resolved_service_name = os.getenv("OTEL_SERVICE_NAME", service_name)
+    otlp_endpoint = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "http://localhost:4318/v1/traces",
+    )
+    otlp_headers_raw = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", "")
 
-    # Use the batch span processor for lower overhead vs. synchronous emitting.
+    headers = {}
+    if otlp_headers_raw:
+        pairs = [h.strip() for h in otlp_headers_raw.split(",") if h.strip()]
+        for pair in pairs:
+            if "=" in pair:
+                key, value = pair.split("=", 1)
+                headers[key.strip()] = value.strip()
+
+    resource = Resource(attributes={"service.name": resolved_service_name})
     tracer_provider = TracerProvider(resource=resource)
     span_processor = BatchSpanProcessor(
-        JaegerExporter(
-            agent_host_name="localhost",
-            agent_port=6831,
+        OTLPSpanExporter(
+            endpoint=otlp_endpoint,
+            headers=headers,
         )
     )
     tracer_provider.add_span_processor(span_processor)
 
-    # Register the provider globally so instrumentation picks it up automatically.
     trace.set_tracer_provider(tracer_provider)
-
-    # TODO: Allow configurable service names + exporters via env vars / CLI flags.
-    return trace.get_tracer(service_name)
+    return trace.get_tracer(resolved_service_name)
 
 
 _http_instrumented = False

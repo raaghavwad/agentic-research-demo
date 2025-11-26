@@ -1,19 +1,20 @@
-"""Web search + Ollama summarization pipeline with observability."""
+"""Web search + OpenAI summarization pipeline with observability."""
 
 from __future__ import annotations
 
 import requests
-import ollama
+from openai import OpenAI
 from opentelemetry import trace
 
 from config import get_settings
 
 
 def web_search_and_summarize(query: str) -> str:
-    """Perform a web search and use Ollama to summarize the results."""
+    """Perform a web search and use an LLM (OpenAI by default) to summarize."""
 
     tracer = trace.get_tracer(__name__)
     settings = get_settings()
+    client = OpenAI(api_key=settings.llm_api_key or None)
 
     # Wrap the entire operation in a span so downstream calls nest nicely.
     with tracer.start_as_current_span("web_search_and_summarize") as span:
@@ -51,47 +52,46 @@ def web_search_and_summarize(query: str) -> str:
 
         span.set_attribute("search.context_length", len(context))
 
-        # Use Ollama to generate a concise summary
-        try:
-            with tracer.start_as_current_span("ollama.summarize") as llm_span:
-                llm_span.set_attribute("llm.model", settings.ollama_model)
-                
-                prompt = f"""You are a helpful research assistant. Based on the search results below about "{query}", provide ONLY a brief 2-3 sentence summary. Do not add any extra commentary, questions, or elaborate beyond the summary.
+        prompt = f"""You are a helpful research assistant. Based on the search results below about "{query}", provide ONLY a brief 2-3 sentence summary. Do not add any extra commentary, questions, or elaborate beyond the summary.
 
 Search Results:
 {context}
 
 Provide your summary now (2-3 sentences only):"""
 
-                response = ollama.chat(
-                    model=settings.ollama_model,
+        # Use OpenAI Chat Completions to generate a concise summary
+        try:
+            with tracer.start_as_current_span("llm.summarize") as llm_span:
+                llm_span.set_attribute("llm.provider", settings.llm_provider)
+                llm_span.set_attribute("llm.model", settings.llm_model)
+
+                response = client.chat.completions.create(
+                    model=settings.llm_model,
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a concise research assistant. Provide brief, factual summaries without elaboration."
+                            "content": "You are a concise research assistant. Provide brief, factual summaries without elaboration.",
                         },
                         {
                             "role": "user",
-                            "content": prompt
-                        }
+                            "content": prompt,
+                        },
                     ],
-                    options={
-                        "temperature": 0.3,  # Lower temperature for more focused responses
-                        "num_predict": 150,  # Limit token generation
-                    }
+                    temperature=0.2,
+                    max_tokens=400,
                 )
-                
-                summary = response["message"]["content"].strip()
-                
+
+                summary = response.choices[0].message.content.strip()
+
                 # If summary is too long, truncate it intelligently
-                sentences = summary.split('. ')
+                sentences = summary.split(". ")
                 if len(sentences) > 3:
-                    summary = '. '.join(sentences[:3]) + '.'
-                
+                    summary = ". ".join(sentences[:3]) + "."
+
                 llm_span.set_attribute("llm.response_length", len(summary))
-                
+
         except Exception as e:
-            summary = f"LLM summarization failed: {str(e)}. Raw context: {context[:200]}..."
+            summary = f"LLM summarization failed (OpenAI): {str(e)}. Raw context: {context[:200]}..."
             span.set_attribute("llm.error", str(e))
 
         span.set_attribute("summary.length", len(summary))

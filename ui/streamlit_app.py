@@ -3,26 +3,28 @@
 This module provides a web UI that allows users to interact with the Research Analyst
 Agentic System through a simple browser interface. The UI calls into the existing
 LangGraph workflow (root agent + SearchAgent + DatabaseAgent) and preserves all
-observability behavior, ensuring that OpenTelemetry spans and Jaeger traces are
-generated consistently whether the system is accessed via CLI or this web interface.
+observability behavior, ensuring that OpenTelemetry spans (Tempo) and Prometheus
+metrics are generated consistently whether the system is accessed via CLI or this
+web interface.
 
 The UI should:
 - Initialize the workflow once (e.g., via st.cache_resource) for performance
 - For each user query, call the orchestration function (e.g., run_graph(workflow, user_query))
 - Display the combined final answer, optionally showing separate "Web Research Summary"
   and "Oracle Trends" sections
-- Provide clear instructions and a link or note about viewing traces in Jaeger
+- Provide clear instructions and a link or note about viewing traces/metrics in Grafana
 
 Running:
     streamlit run ui/streamlit_app.py
 
 Note: The UI must not bypass observability - it should always rely on the same
 build_workflow + run_graph functions that the CLI uses, so traces remain consistent
-and visible in Jaeger under service.name = agentic-research-demo.
+and visible through the Grafana Tempo datasource under service.name = agentic-research-demo.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -67,20 +69,38 @@ with st.sidebar:
     )
     
     st.markdown("---")
-    
-    st.markdown("### Traces in Jaeger")
+
+    grafana_url = os.getenv("GRAFANA_URL", "http://localhost:3000")
+    grafana_traces_url = os.getenv("GRAFANA_TRACES_URL")
+    grafana_kpis_url = os.getenv("GRAFANA_KPIS_URL")
+
+    st.markdown("### Observability (Grafana)")
     st.markdown(
-        "Each request appears in Jaeger under service: `agentic-research-demo`"
+        "This app emits traces via OpenTelemetry (OTLP) to Tempo and metrics to Prometheus. "
+        "Grafana provides a single UI to explore both traces and KPIs."
     )
-    st.markdown("[Open Jaeger →](http://localhost:16686)")
-    
+
+    if grafana_traces_url or grafana_kpis_url:
+        if grafana_traces_url:
+            st.markdown(f"[View Traces →]({grafana_traces_url})")
+        if grafana_kpis_url:
+            st.markdown(f"[View KPIs Dashboard →]({grafana_kpis_url})")
+    else:
+        if grafana_url:
+            st.markdown(f"[Open Grafana →]({grafana_url})")
+        st.caption(
+            "Configure `GRAFANA_TRACES_URL` and `GRAFANA_KPIS_URL` to deep-link to specific views."
+        )
+
     st.markdown("---")
-    
+
     st.markdown("### Tech Stack")
     st.markdown("- LangGraph")
     st.markdown("- Streamlit")
     st.markdown("- Oracle AI Database")
-    st.markdown("- OpenTelemetry + Jaeger")
+    st.markdown("- OpenTelemetry → Tempo (traces)")
+    st.markdown("- Prometheus (metrics)")
+    st.markdown("- Grafana (unified observability UI)")
 
 # Main content area with centered layout
 left, center, right = st.columns([1, 2, 1])

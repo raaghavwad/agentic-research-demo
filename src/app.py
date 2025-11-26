@@ -8,6 +8,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="opentelemetry.instrumentation.dependencies")
 
 from config import get_settings
+from observability.metrics import init_metrics_server
 from observability.otel_setup import init_tracer, init_http_instrumentation
 from services.db_client import OracleDBClient
 from agents.search_agent import SearchAgent
@@ -18,6 +19,7 @@ from agents.agent_graph import build_graph, run_graph
 def build_workflow():
     """Construct dependencies and compile LangGraph workflow."""
     _ = get_settings()  # Ensures env is loaded; settings used inside services.
+    init_metrics_server()
     init_tracer(service_name="agentic-research-demo")
     init_http_instrumentation()
 

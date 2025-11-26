@@ -1,173 +1,74 @@
-# Agentic Research Analyst Demo
+## Purpose
 
-A teaching-oriented demo that showcases a multi-agent research workflow with full observability. The application coordinates web-search and Oracle database agents, instruments spans with OpenTelemetry, and exports traces to Jaeger for visualization.
+Agentic Research Analyst demo that:
 
-## Prerequisites
+- Runs a multi-agent workflow (Search + LLM summarization + Oracle DB trends)
+- Instruments every step with OpenTelemetry for traces and KPIs
+- Visualizes observability via Grafana using Tempo (traces) and Prometheus (metrics)
 
-- Python 3.11+
-- Docker (for Jaeger + optional Oracle DB + Ollama runtime)
-- curl (for Ollama install script)
-- Make (optional, for future scripts)
-
-## Installation
+## Quick Start
 
 ```bash
+git clone <your-fork-url>
+cd agentic-research-demo
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env  # then fill in API keys / DB settings
 ```
 
-## Install & Pull Ollama Model
-
-Install Ollama (Linux/macOS):
-
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-Verify it is running and pull the model defined in `.env.example` (`phi3.5:latest` by default):
-
-```bash
-ollama list
-ollama pull phi3.5:latest
-```
-
-If you change `OLLAMA_MODEL` (e.g. to a lighter model like `qwen2.5:0.5b`), pull that instead:
-
-```bash
-ollama pull qwen2.5:0.5b
-```
-
-## Optional: Run Oracle Database Free (Local)
-
-If you want real Oracle results instead of fallback rows, run the Oracle Database Free image locally. (You may need to create a free account and accept terms at <https://container-registry.oracle.com>.)
-
-Pull the image:
-
-```bash
-docker pull container-registry.oracle.com/database/free:latest
-```
-
-Start the container (password must match your `.env` or update `ORACLE_PASSWORD` there):
-
-```bash
-docker run -d --name oracle-free -p 1521:1521 \
-    -e ORACLE_PASSWORD=OraclePassword123 \
-    container-registry.oracle.com/database/free:latest
-```
-
-(Optional) Initialize sample data using SQLcl once the DB is healthy:
-
-```bash
-sqlcl SYSTEM/OraclePassword123@localhost:1521/FREEPDB1 @data/init_db.sql
-```
-
-Smoke test connectivity:
-
-```bash
-python test_oracle_connection.py
-```
-
-If you prefer NOT to run Oracle, the app will gracefully fall back to static sample rows.
-
-## Environment Variables
-
-Copy the template and update secrets:
-
-```bash
-cp .env.example .env
-# Edit .env with your keys
-```
-
-## Running Jaeger
+## Observability Stack
 
 ```bash
 cd docker
-docker compose up jaeger
-# UI available at http://localhost:16686
+docker compose up
 ```
 
-Jaeger captures spans from the Python app; leave it running while you experiment.
+This launches Tempo, Prometheus, and Grafana (http://localhost:3000).
 
 ## Running the Application
 
 ```bash
+# CLI mode
 python src/app.py
+
+# Streamlit UI
+streamlit run ui/streamlit_app.py
 ```
 
-The entrypoint spins up the LangGraph workflow which:
+## Environment Variables
 
-1. Starts a root span `root_agent.handle_request`.
-2. Executes search node (`search_agent.run`) calling `web_search_and_summarize` and an Ollama model.
-3. Executes database node (`db_agent.run`) calling `oracle.query_trends`.
-4. Combines results and emits response length metrics.
+```env
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4o-mini
 
-To enable the experimental SQLcl subprocess path for Oracle queries:
+OTEL_SERVICE_NAME=agentic-research-demo
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
+GRAFANA_URL=http://localhost:3000
 
-```bash
-USE_SQLCL_MCP=true python src/app.py
+ORACLE_USER=SYSTEM
+ORACLE_PASSWORD=OraclePassword123
+ORACLE_DSN=localhost:1521/FREEPDB1
 ```
 
-If SQLcl isn't installed or the subprocess fails, it gracefully falls back to the direct Python driver.
+Oracle Database is optional. If it’s unreachable, `DatabaseAgent` falls back to static sample rows so the demo still works.
 
-### Quick Start (All Together)
+## Observability UI
 
-```bash
-# 1. Clone & enter repo
-git clone <your-fork-url> && cd agentic-research-demo
+- Traces flow via OTLP to Tempo → view in Grafana (Explore → Trace view).
+- KPIs come from Prometheus scraping `http://host.docker.internal:9464/metrics`.
+- Streamlit sidebar links to Grafana; set `GRAFANA_TRACES_URL` / `GRAFANA_KPIS_URL` to deep-link dashboards.
 
-# 2. Python deps
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+## Key Concepts
 
-# 3. Env setup
-cp .env.example .env
+- RootAgent orchestrates SearchAgent + DatabaseAgent
+- Web search + LLM summary
+- Oracle DB trends
+- OpenTelemetry traces + metrics
+- Grafana UI for observability
 
-# 4. Ollama install + model pull
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull phi3.5:latest
+## Support / Troubleshooting
 
-# 5. (Optional) Oracle Free DB
-docker pull container-registry.oracle.com/database/free:latest
-docker run -d --name oracle-free -p 1521:1521 -e ORACLE_PASSWORD=OraclePassword123 container-registry.oracle.com/database/free:latest
-sqlcl SYSTEM/OraclePassword123@localhost:1521/FREEPDB1 @data/init_db.sql || echo "Skip if SQLcl not installed"
-
-# 6. Jaeger tracing backend
-cd docker && docker compose up jaeger &
-cd ..
-
-# 7. Run demo
-python src/app.py
-```
-
-## Viewing Traces
-
-1. Start Jaeger (see above) and run the app.
-2. Open <http://localhost:16686>.
-3. Filter by service name (default: the module name where spans were created).
-4. Inspect span chain:
-    - root_agent.handle_request
-    - search_agent.run → web_search_and_summarize → ollama.summarize
-    - db_agent.run → oracle.query_trends
-5. Check attributes like `user.query`, `search.summary.length`, `db.rows_count`, `response.length`.
-
-To test fallback vs. SQLcl path, toggle:
-
-```bash
-USE_SQLCL_MCP=true python src/app.py
-```
-
-## Architecture (High-Level)
-
-```mermaid
-graph TD
-    User((User Query)) --> RootAgent
-    RootAgent --> SearchAgent
-    RootAgent --> DBAgent
-    SearchAgent --> WebSearchService
-    SearchAgent -->|Spans| Jaeger
-    DBAgent --> OracleDBClient
-    OracleDBClient -->|Direct or SQLcl| OracleDB
-    RootAgent -->|Parent Span| Jaeger
-```
+- No traces? Confirm `OTEL_EXPORTER_OTLP_ENDPOINT` and that `docker compose up` is running.
+- Missing metrics? Ensure Prometheus scrapes `http://host.docker.internal:9464/metrics`.
+- Oracle errors? The fallback mock data preserves the demo flow.
