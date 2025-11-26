@@ -21,6 +21,15 @@ from langgraph.graph import StateGraph, END  # type: ignore
 
 from agents.search_agent import SearchAgent
 from agents.db_agent import DatabaseAgent
+from observability.metrics import (
+    REQUEST_COUNTER,
+    REQUEST_LATENCY,
+    QUERIES_PER_SESSION,
+    REVENUE_SAVINGS,
+)
+
+# Business value placeholder for revenue savings calculation
+ESTIMATED_SAVINGS_PER_SUCCESS_USD = 1.0
 
 
 class GraphState(TypedDict, total=False):
@@ -80,11 +89,23 @@ def build_graph(search_agent: SearchAgent, db_agent: DatabaseAgent):
 
 def run_graph(workflow, user_query: str) -> str:
     """Execute the compiled workflow under the root span and return combined result."""
-    tracer = trace.get_tracer(__name__)
-    with tracer.start_as_current_span("root_agent.handle_request") as span:
-        span.set_attribute("user.query", user_query)
-        final_state: GraphState = workflow.invoke({"query": user_query})
-        combined = final_state.get("combined", "")
-        span.set_attribute("response.length", len(combined))
-        span.set_attribute("response.lines", combined.count("\n") + (1 if combined else 0))
-        return combined
+    QUERIES_PER_SESSION.inc()
+    outcome = "success"
+    
+    with REQUEST_LATENCY.time():
+        try:
+            tracer = trace.get_tracer(__name__)
+            with tracer.start_as_current_span("root_agent.handle_request") as span:
+                span.set_attribute("user.query", user_query)
+                final_state: GraphState = workflow.invoke({"query": user_query})
+                combined = final_state.get("combined", "")
+                span.set_attribute("response.length", len(combined))
+                span.set_attribute("response.lines", combined.count("\n") + (1 if combined else 0))
+            
+            REVENUE_SAVINGS.inc(ESTIMATED_SAVINGS_PER_SUCCESS_USD)
+            return combined
+        except Exception:
+            outcome = "error"
+            raise
+        finally:
+            REQUEST_COUNTER.labels(outcome=outcome).inc()
