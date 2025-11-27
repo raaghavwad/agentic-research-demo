@@ -5,5 +5,4 @@ scrape_configs:
   - job_name: "agentic-research-demo"
     metrics_path: /metrics
     static_configs:
-      - targets: ["host.docker.internal:9464"]
-
+      - targets: ["host.docker.internal:9464", "app:9464"]

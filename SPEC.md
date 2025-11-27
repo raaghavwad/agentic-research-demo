@@ -61,71 +61,11 @@ At first, this can return mocked results with TODO comments.
 
 # 🧩 Observability Requirements
 
-## 🔭 Observability Stack (Traces + KPIs)
-
-The application must provide **end-to-end observability** with:
-
-- **Traces** for agent workflows (RootAgent → SearchAgent → DBAgent → LLM + DB calls)
-- **Key metrics (KPIs)** such as request counts, error rates, and latency
-
-### Traces: OpenTelemetry → Tempo
-
-- The Python app uses the **OpenTelemetry SDK** for tracing.
-- Traces are exported via **OTLP (HTTP or gRPC)** to a local **Grafana Tempo** instance.
-- No Jaeger-specific code should exist in the application.
-- Configurable via environment variables:
-  - `OTEL_SERVICE_NAME` (default: `agentic-research-demo`)
-  - `OTEL_EXPORTER_OTLP_ENDPOINT` (default: `http://localhost:4318/v1/traces`)
-  - `OTEL_EXPORTER_OTLP_HEADERS` (optional, e.g. `Authorization=Bearer xyz`)
-
-The span model remains:
-
-- `root_agent.handle_request`
-  - `search_agent.run`
-    - `web_search.fetch_results`
-    - `llm.summarize`
-  - `db_agent.run`
-    - `oracle.query_trends`
-
-Each span should include relevant attributes and record exceptions.
-
-### Metrics: Prometheus KPIs
-
-- The app must expose **basic metrics** via a Prometheus-compatible endpoint, using the `prometheus_client` library.
-- Metrics should include at least:
-  - A **counter** for total requests (labeled by outcome: success / error)
-  - A **histogram** for request latency (in seconds or milliseconds)
-- Metrics are exposed on an HTTP endpoint, e.g. `:9464/metrics`.
-- A local **Prometheus** instance scrapes this endpoint and stores metrics.
-
-### Unified UI: Grafana
-
-- A local **Grafana** instance is used as the **single observability UI**.
-- Grafana is configured with:
-  - A **Tempo data source** for traces.
-  - A **Prometheus data source** for metrics.
-- At least one dashboard or view should allow:
-  - Inspecting traces for individual agent requests (via Tempo).
-  - Viewing KPIs (request rate, error rate, latency distribution) from Prometheus metrics.
-
-### Configuration in the UI
-
-- The Streamlit UI sidebar must reference Grafana instead of Jaeger.
-- Environment variables:
-  - `GRAFANA_URL` — base URL for the Grafana UI (default: `http://localhost:3000`)
-  - Optional:
-    - `GRAFANA_TRACES_URL` — deep link to a traces view or Explore page.
-    - `GRAFANA_KPIS_URL` — deep link to a KPIs dashboard.
-- If `GRAFANA_TRACES_URL` and `GRAFANA_KPIS_URL` are provided, the UI should render separate links for:
-  - “View Traces”
-  - “View KPIs Dashboard”
-- If only `GRAFANA_URL` is set, show a single “Open Grafana” link with explanatory text.
-
-
 The project **must** include:
 
 ### **OpenTelemetry Tracing**
 - OpenTelemetry SDK + API
+- Jaeger exporter
 - Parent/child spans for:
   - RootAgent
   - SearchAgent
@@ -137,10 +77,13 @@ The project **must** include:
 ### **HTTP instrumentation**
 Use:
 
-```env
+```
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 ```
 
+### **Jaeger**
+- Docker compose file with Jaeger all-in-one service  
+- Accessible at: http://localhost:16686
 
 ### **Span Naming Guidelines**
 - `"root_agent.handle_request"`
@@ -150,9 +93,7 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 - `"oracle.query_trends"`
 
 ### **Span Attributes**
-
 Include useful metadata such as:
-
 - `user.query`
 - `search.query`
 - `db.topic`
@@ -160,21 +101,11 @@ Include useful metadata such as:
 - `summary.length`
 - `db.rows_count`
 
-Additional attributes implemented (post initial spec) to enrich trace analysis:
-
-- `search.summary.length` (length of LLM-produced search summary)
-- `db.lines.count` (number of formatted lines returned by DatabaseAgent)
-- `response.length` (total combined result length)
-- `response.lines` (number of lines in final combined answer)
-- `db.mcp.mode` ("sqlcl" when SQLcl subprocess path active, else "direct")
-- `llm.response_length` (length of LLM summarization output, e.g., OpenAI Chat Completions)
-- `search.context_length` (length of gathered raw search context prior to summarization)
-
 ---
 
-## Folder Structure (Must Match)
+# 📁 Folder Structure (Must Match)
 
-```text
+```
 src/
   app.py
   config.py
@@ -204,82 +135,52 @@ README.md
 
 ---
 
-## Code Behavior Requirements
+# 🛠️ Code Behavior Requirements
 
-### RootAgent
-
+## RootAgent
 - Coordinates SearchAgent + DatabaseAgent
 - Creates root span
 - Adds attributes for input + output length
 - Sequential execution is fine
 - Combines results in `_combine_results`
 
-### SearchAgent
-
+## SearchAgent
 - Creates its own span
 - Calls web_search_and_summarize
 - Handles LLM summarization (placeholder is fine)
 
-### DatabaseAgent
-
+## DatabaseAgent
 - Creates its own span
 - Calls OracleDBClient.query_trends()
 - Formats rows as text
 
-### OracleDBClient
+## OracleDBClient
+- Constructor accepts `sqlcl_endpoint`
+- `query_trends(topic: str)` wraps DB call in a span
+- Should mock results first (replace later)
 
-- Constructor reads connection settings from environment via `config.get_settings()`.
-- `query_trends(topic: str)` wraps DB call in `oracle.query_trends` span.
-- Selection logic:
-  1. If env `USE_SQLCL_MCP=true` and `sql` executable found → attempt SQLcl subprocess (CSV output parsing).
-  2. Else use direct Python `oracledb` driver.
-  3. On failure fall back to static sample rows and set `db.error` span attribute.
-- Emits `db.mcp.mode` indicating which path executed ("sqlcl" or "direct").
-
-### Web Search Service
-
-- Wrap logic in `"web_search_and_summarize"` span, sub-span `"llm.summarize"` for the LLM call.
-- Uses DuckDuckGo Instant Answer API (`requests.get`, automatically instrumented) to gather context.
-- Summarizes via a configurable LLM provider (current implementation uses OpenAI Chat Completions via `OPENAI_MODEL`).
-- Attributes: `search.query`, `search.context_length`, `llm.provider`, `llm.model`, `llm.response_length`, `summary.length`.
+## Web Search Service
+- Wrap logic in `"web_search_and_summarize"` span
+- Use `requests.get()` (instrumented automatically)
+- Use placeholder API endpoint
 
 ---
 
-## Environment Setup Requirements
+# 🔧 Environment Setup Requirements
 
 Create `.env.example` with:
 
 ```
-OPENAI_API_KEY=your_openai_key_here
-OPENAI_MODEL=gpt-4o-mini
-LLM_PROVIDER=openai
-LLM_API_KEY=${OPENAI_API_KEY}
-LLM_MODEL=${OPENAI_MODEL}
+LLM_API_KEY=your_key_here
 WEB_SEARCH_API_KEY=your_key_here
 SQLCL_MCP_ENDPOINT=http://localhost:1234
-ORACLE_USER=SYSTEM
-ORACLE_PASSWORD=OraclePassword123
-ORACLE_DSN=localhost:1521/FREEPDB1
-USE_SQLCL_MCP=false
 ```
 
 Use `python-dotenv` to load these values in `config.py`.
 
-### LLM Configuration
-
-- SearchAgent uses an LLM to summarize aggregated web search context into a concise answer.
-- The provider is configurable, but the current implementation defaults to OpenAI Chat Completions.
-- Environment variables:
-  - `OPENAI_API_KEY` — API key for OpenAI.
-  - `OPENAI_MODEL` — model name (e.g., `gpt-4o-mini`, `gpt-4.1-mini`).
-  - Optional aliases `LLM_API_KEY` / `LLM_MODEL` can mirror the OpenAI values to keep the rest of the stack provider-agnostic.
-- Observability requirements for LLM usage:
-  - All LLM calls must be wrapped in a span such as `llm.summarize`.
-  - Span attributes must include `llm.provider` (e.g., `openai`), `llm.model`, and `llm.response_length`.
-
 ---
 
-## Docker Requirements
+# 🐳 Docker Requirements
 
 `docker/docker-compose.yml` must include:
 
@@ -291,7 +192,7 @@ Use `python-dotenv` to load these values in `config.py`.
 
 ---
 
-## README Requirements
+# 📜 README Requirements
 
 README.md must include:
 
@@ -306,7 +207,7 @@ README.md must include:
 
 ---
 
-## Design Philosophy
+# 🎯 Design Philosophy
 
 - Code must be **readable**, **well-commented**, and **evangelist-friendly**  
 - Avoid over-engineering — clarity matters more  
@@ -315,7 +216,7 @@ README.md must include:
 
 ---
 
-## Deliverables
+# 🚀 Deliverables
 
 This SPEC.md describes the full scope needed for:
 
@@ -325,14 +226,7 @@ This SPEC.md describes the full scope needed for:
 4. A presentation-ready 5-minute demo  
 5. A GitHub-ready project
 
-Recommended additional verification steps for demo readiness:
-
-- Run with Jaeger active and confirm span tree ordering.
-- Toggle `USE_SQLCL_MCP=true` and verify `db.mcp.mode` changes.
-- Inspect attributes `response.lines` and `search.summary.length` for sane values.
-
 Cursor should follow this spec for:
-
 - scaffolding
 - code generation
 - refinement
@@ -363,3 +257,21 @@ Running the UI:
 - The UI **must not** bypass observability:
   - It should always rely on the same `build_workflow` + `run_graph` functions that the CLI uses, so the traces remain consistent and visible in Jaeger under `service.name = agentic-research-demo`.
 
+### LLM Configuration
+
+The SearchAgent uses an LLM to summarize web search results into a concise answer.
+The specific LLM provider is configurable and should not be hard-coded.
+
+Environment variables (provider-agnostic):
+- `LLM_PROVIDER` — e.g., `ollama`, `openai`, `oci`, or `azure`.
+- `LLM_MODEL` — model name (provider-specific).
+- `LLM_BASE_URL` — base URL or inference endpoint (optional).
+- `LLM_API_KEY` — required only for external providers.
+
+Requirements:
+- All LLM calls must be wrapped in an OpenTelemetry span (`llm.summarize`).
+- Spans must include attributes:
+    - `llm.provider`
+    - `llm.model`
+    - `llm.response_length`
+- Implementation should support swapping LLM providers without changing UI or agent logic.

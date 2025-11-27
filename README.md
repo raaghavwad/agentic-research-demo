@@ -6,7 +6,31 @@ Agentic Research Analyst demo that:
 - Instruments every step with OpenTelemetry for traces and KPIs
 - Visualizes observability via Grafana using Tempo (traces) and Prometheus (metrics)
 
-## Quick Start
+## 🚀 Docker Quick Start (Recommended)
+
+1. **Configure Environment**:
+   Copy the example environment file and fill in your API keys (especially `OPENAI_API_KEY`):
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual keys
+   ```
+
+2. **Run the Stack**:
+   Run the entire stack (App + UI + Observability) with a single command:
+
+   ```bash
+   docker compose up --build
+   ```
+
+Access the services:
+
+- **Streamlit UI**: <http://localhost:8501>
+- **Grafana**: <http://localhost:3000>
+- **Jaeger/Tempo**: <http://localhost:3200>
+- **Prometheus**: <http://localhost:9090>
+
+## 🐍 Local Development Setup
 
 ```bash
 git clone <your-fork-url>
@@ -17,16 +41,24 @@ pip install -r requirements.txt
 cp .env.example .env  # then fill in API keys / DB settings
 ```
 
-## Observability Stack
+## Observability Stack (Standalone)
+
+If running the app locally (not in Docker), start the observability backend separately:
 
 ```bash
 cd docker
 docker compose up
 ```
 
-This launches Tempo, Prometheus, and Grafana (http://localhost:3000).
+This launches Tempo, Prometheus, and Grafana.
 
-## Running the Application
+Access the observability services:
+
+- **Grafana**: <http://localhost:3000>
+- **Jaeger/Tempo**: <http://localhost:3200>
+- **Prometheus**: <http://localhost:9090>
+
+## Running the Application (Local)
 
 ```bash
 # CLI mode

@@ -23,3 +23,4 @@ __pycache__/
 
 # Local SQLite / DB files if any
 *.db
+.python-version
