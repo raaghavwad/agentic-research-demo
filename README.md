@@ -74,8 +74,15 @@ streamlit run ui/streamlit_app.py
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-4o-mini
 
-OTEL_SERVICE_NAME=agentic-research-demo
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
+# OpenTelemetry configuration for local Tempo instance
+export OTEL_SERVICE_NAME=agentic-research-demo
+export OTEL_TRACES_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+# Optional: signal-specific config if preferred
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318/v1/traces
+
 GRAFANA_URL=http://localhost:3000
 
 ORACLE_USER=SYSTEM
@@ -83,7 +90,9 @@ ORACLE_PASSWORD=OraclePassword123
 ORACLE_DSN=localhost:1521/FREEPDB1
 ```
 
-Oracle Database is optional. If it’s unreachable, `DatabaseAgent` falls back to static sample rows so the demo still works.
+**Note**: Either the generic `OTEL_EXPORTER_OTLP_ENDPOINT` or the more specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` can be used, but the base URL should match the docker-exposed `localhost:4318`.
+
+Oracle Database is optional. If it's unreachable, `DatabaseAgent` falls back to static sample rows so the demo still works.
 
 ## Observability UI
 

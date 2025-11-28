@@ -7,12 +7,11 @@ services:
     container_name: tempo
     command: ["-config.file=/etc/tempo/tempo-local.yaml"]
     volumes:
-      - ./tempo-local.yaml:/etc/tempo/tempo-local.yaml:ro
-      - tempo-data:/tmp/tempo
+      - ./tempo-local.yaml:/etc/tempo/tempo-local.yaml
+      - tempo-data:/var/tempo
     ports:
-      - "3200:3200"   # Query / status UI
-      - "4318:4318"   # OTLP HTTP ingest for traces
-    restart: unless-stopped
+      - "3200:3200"  # Tempo HTTP API for Grafana
+      - "4318:4318"  # OTLP HTTP endpoint for traces from the app
 
   prometheus:
     image: prom/prometheus:latest

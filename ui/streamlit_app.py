@@ -6,20 +6,6 @@ LangGraph workflow (root agent + SearchAgent + DatabaseAgent) and preserves all
 observability behavior, ensuring that OpenTelemetry spans (Tempo) and Prometheus
 metrics are generated consistently whether the system is accessed via CLI or this
 web interface.
-
-The UI should:
-- Initialize the workflow once (e.g., via st.cache_resource) for performance
-- For each user query, call the orchestration function (e.g., run_graph(workflow, user_query))
-- Display the combined final answer, optionally showing separate "Web Research Summary"
-  and "Oracle Trends" sections
-- Provide clear instructions and a link or note about viewing traces/metrics in Grafana
-
-Running:
-    streamlit run ui/streamlit_app.py
-
-Note: The UI must not bypass observability - it should always rely on the same
-build_workflow + run_graph functions that the CLI uses, so traces remain consistent
-and visible through the Grafana Tempo datasource under service.name = agentic-research-demo.
 """
 
 from __future__ import annotations
@@ -109,14 +95,14 @@ with center:
     # Header section
     st.markdown("### ResearchFlow AI")
     st.markdown(
-        "Agentic AI research assistant combining web research and Oracle database insights."
+        "Agentic AI Database research assistant combining web research and Oracle database insights."
     )
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Search input and button
     query = st.text_input(
         "Ask a research question",
-        placeholder="e.g., What are the latest trends in AI databases?",
+        placeholder="e.g., Give me details about the Pinecone Database?",
         key="user_query",
     )
     

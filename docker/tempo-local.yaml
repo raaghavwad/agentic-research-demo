@@ -1,12 +1,13 @@
 server:
   http_listen_address: 0.0.0.0
-  http_listen_port: 3200
+  http_listen_port: 3200  # Tempo HTTP API for Grafana
 
 distributor:
   receivers:
     otlp:
       protocols:
-        http: {}  # OTLP HTTP on :4318 (Tempo's default in the image)
+        http:
+          endpoint: 0.0.0.0:4318  # Explicit OTLP HTTP listener for traces
 
 ingester:
   trace_idle_period: 10s
@@ -19,5 +20,7 @@ compactor:
 storage:
   trace:
     backend: local
+    wal:
+      path: /var/tempo/wal
     local:
       path: /var/tempo/traces

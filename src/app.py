@@ -37,8 +37,8 @@ def main() -> None:
     response = run_graph(workflow, user_query)
     print("=== Agentic Research Demo (LangGraph) ===")
     print(f"User query: {user_query}")
-    print("\n=== Combined Answer ===")
-    print(response)
+    #print("\n=== Combined Answer ===")
+    #print(response)
 
 
 if __name__ == "__main__":
