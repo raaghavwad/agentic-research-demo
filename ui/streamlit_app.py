@@ -95,7 +95,7 @@ with center:
     # Header section
     st.markdown("### ResearchFlow AI")
     st.markdown(
-        "Agentic AI Database research assistant combining web research and Oracle database insights."
+        "Agentic AI research assistant combining web research and Oracle database insights."
     )
     st.markdown("<br>", unsafe_allow_html=True)
     
