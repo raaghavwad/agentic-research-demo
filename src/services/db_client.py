@@ -90,6 +90,13 @@ class OracleDBClient:
                     conn.close()
                 except Exception as exc:
                     # Final fallback rows.
+                    # NOTE:
+                    # These fallback rows are used when Oracle DB is unreachable or misconfigured,
+                    # so the demo still returns a "trends" shape.
+                    # The Streamlit UI now treats any row containing "(fallback)" as "no real data"
+                    # and shows a friendly message like:
+                    #   "We weren't able to find Oracle trend data about '<query>'"
+                    # instead of exposing these raw fallback strings to the user.
                     if not rows:  # Only overwrite if still empty.
                         rows = [
                             {"year": 2024, "trend": "(fallback) AI-native databases"},

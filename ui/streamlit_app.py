@@ -128,28 +128,51 @@ with center:
                     st.exception(e)
                     st.session_state.result = ""
     
-    # Display results in a styled card container
+    # Display results
     if st.session_state.result:
         st.markdown("----")
-        st.subheader("Answer")
+        result_text = st.session_state.result
         
-        with st.container():
-            # Card-like styling for the answer
-            # Convert newlines to HTML breaks for proper display
-            formatted_result = st.session_state.result.replace("\n", "<br>")
-            st.markdown(
-                f"""
-                <div style="
-                    padding: 1rem 1.5rem;
-                    border-radius: 0.75rem;
-                    border: 1px solid rgba(200,200,200,0.6);
-                    background-color: rgba(250,250,250,0.9);
-                ">
-                    {formatted_result}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        # Parse the combined result to extract sections
+        parts = result_text.split("=== Oracle Trends ===")
+        web_summary = parts[0].replace("=== Web Research Summary ===", "").strip()
+        oracle_section = parts[1].strip() if len(parts) > 1 else ""
+        
+        # Display Web Research Summary
+        if web_summary:
+            st.subheader("=== Web Research Summary ===")
+            with st.container():
+                formatted_summary = web_summary.replace("\n", "<br>")
+                st.markdown(
+                    f"""
+                    <div style="
+                        padding: 1rem 1.5rem;
+                        border-radius: 0.75rem;
+                        border: 1px solid rgba(200,200,200,0.6);
+                        background-color: rgba(250,250,250,0.9);
+                    ">
+                        {formatted_summary}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        
+        # Parse and display Oracle Trends with fallback handling
+        if oracle_section:
+            raw_trends = oracle_section.split("\n")
+            raw_trends = [t.strip() for t in raw_trends if t.strip()]
+        else:
+            raw_trends = []
+        
+        non_fallback_trends = [t for t in raw_trends if "(fallback)" not in t]
+        
+        if non_fallback_trends:
+            st.subheader("=== Oracle Trends ===")
+            st.text("\n".join(non_fallback_trends))
+        elif raw_trends:
+            # We got only fallback trends from the DatabaseAgent
+            st.info(f"We weren't able to find Oracle trend data about '{query}'.")
+        # else: if raw_trends is empty or None, render nothing
         
         st.caption(
             "ResearchFlow AI combines web search, LLM summarization, and Oracle database trends under the hood."
