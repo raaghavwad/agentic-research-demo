@@ -17,7 +17,22 @@ Agentic Research Analyst demo that:
    ```
 
 2. **Run the Stack**:
-   Run the entire stack (App + UI + Observability) with a single command:
+   You can use the provided helper scripts to build and run the stack in one go:
+
+   **Linux / macOS:**
+
+   ```bash
+   chmod +x start.sh
+   ./start.sh
+   ```
+
+   **Windows:**
+
+   ```cmd
+   start.bat
+   ```
+
+   Or manually:
 
    ```bash
    docker compose up --build

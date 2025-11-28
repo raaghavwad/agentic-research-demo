@@ -23,7 +23,7 @@ services:
   tempo:
     image: grafana/tempo:latest
     container_name: tempo
-    command: ["-config.file=/etc/tempo/tempo-local.yaml"]
+    command: ["-config.file=/etc/tempo/tempo-local.yaml", "-log.level=warn"]
     volumes:
       - ./docker/tempo-local.yaml:/etc/tempo/tempo-local.yaml:ro
       - tempo-data:/tmp/tempo
@@ -37,6 +37,7 @@ services:
     container_name: prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--log.level=warn"
     volumes:
       - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
@@ -50,6 +51,11 @@ services:
     container_name: grafana
     ports:
       - "3000:3000"
+    environment:
+      - GF_LOG_LEVEL=warn
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - tempo
       - prometheus
